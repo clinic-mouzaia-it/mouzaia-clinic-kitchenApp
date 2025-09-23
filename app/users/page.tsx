@@ -171,7 +171,7 @@ const Users = () => {
 
       {/* Footer */}
       <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center text-sm text-gray-400">
-        © {new Date().getFullYear()} La cuisine. All rights reserved.
+        © {new Date().getFullYear()} Mouzaia Clinic Kitchen. All rights reserved.
       </footer>
     </div>
   );
