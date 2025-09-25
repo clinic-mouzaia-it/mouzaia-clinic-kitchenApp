@@ -180,6 +180,7 @@ export default function Home() {
             <h2 className="font-bold text-lg mb-2">Scanned Item Info</h2>
             <p><strong>ID:</strong> {qrItem.id}</p>
             <p><strong>Name:</strong> {qrItem.fullName}</p>
+            <p><strong>position:</strong> {qrItem.departement}</p>
             <p><strong>position:</strong> {qrItem.position}</p>
             <p><strong>level:</strong> {qrItem.level}</p>
             {/* Add any other fields from your DB */}
