@@ -14,7 +14,7 @@ datasource db {
 model User {
   id BigInt @id
   fullName String
-  departement String
+  departement String?
   position String
   level Int
 }

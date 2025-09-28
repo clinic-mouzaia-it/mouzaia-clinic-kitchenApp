@@ -5,9 +5,9 @@ import React, { useState } from "react";
 type User = {
   id: bigint;
   fullName: string;
-  position?: string;
-  level?: string;
-  department?: string;
+  position: string;
+  level: string;
+  department: string | null;
 };
 
 type AddUserModalProps = {
@@ -22,44 +22,73 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
   const [fullName, setFullName] = useState("");
   const [position, setPosition] = useState("");
   const [department, setDepartment] = useState("");
-  const [level, setLevel] = useState(1);
+  const [level, setLevel] = useState<number | "">(""); // allow "" for unselected
   const [loading, setLoading] = useState(false);
 
-  // Notification state to show success or error messages
   const [notification, setNotification] = useState<
     { type: "success" | "error"; message: string } | null
   >(null);
 
+  const [errors, setErrors] = useState({
+    fullName: "",
+    position: "",
+    level: "",
+  });
+
   const handleAdd = async () => {
-    if (!fullName.trim()) {
-      setNotification({ type: "error", message: "Full Name is required" });
+    const newErrors = {
+      fullName: "",
+      position: "",
+      level: "",
+    };
+
+    if (!fullName.trim()) newErrors.fullName = "Full Name is required.";
+    if (!position.trim()) newErrors.position = "Position is required.";
+    if (level === "" || isNaN(Number(level)))
+      newErrors.level = "Level is required.";
+
+    const hasErrors = Object.values(newErrors).some((msg) => msg !== "");
+
+    if (hasErrors) {
+      setErrors(newErrors);
       return;
     }
 
+    setErrors({ fullName: "", position: "", level: "" });
     setLoading(true);
-    setNotification(null); // clear previous notifications
+    setNotification(null);
 
     try {
       const res = await fetch("/api/add-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, position, level, department }),
+        body: JSON.stringify({
+          fullName,
+          position,
+          level: Number(level), // ensure it's a number for Prisma
+          department: department.trim() === "" ? null : department,
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok) throw new Error(data.error || "Add user failed");
 
-      setNotification({ type: "success", message: "User successfully created!" });
+      setNotification({
+        type: "success",
+        message: "User successfully created!",
+      });
 
       onUserAdded(data.user);
 
-      // Auto close modal after short delay (optional)
       setTimeout(() => {
         onClose();
       }, 1500);
     } catch (err: any) {
-      setNotification({ type: "error", message: err.message || "Error adding user" });
+      setNotification({
+        type: "error",
+        message: err.message || "Error adding user",
+      });
     } finally {
       setLoading(false);
     }
@@ -83,38 +112,70 @@ const AddUserModal: React.FC<AddUserModalProps> = ({
         )}
 
         <div className="space-y-3">
-          <input
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            placeholder="Full Name"
-            className="w-full border px-4 py-2 rounded"
-          />
-          <input
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            placeholder="Position"
-            className="w-full border px-4 py-2 rounded"
-          />
-          <input
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            placeholder="Department"
-            className="w-full border px-4 py-2 rounded"
-          />
-          <select
-            value={level}
-            onChange={(e) => setLevel(parseInt(e.target.value))}
-            className="w-full border px-4 py-2 rounded"
-          >
-            <option value="">Select Level</option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-          </select>
+          <div>
+            <input
+              value={fullName}
+              onChange={(e) => {
+                setFullName(e.target.value);
+                setErrors((prev) => ({ ...prev, fullName: "" }));
+              }}
+              placeholder="Full Name"
+              className="w-full border px-4 py-2 rounded"
+            />
+            {errors.fullName && (
+              <p className="text-red-600 text-sm mt-1">{errors.fullName}</p>
+            )}
+          </div>
+
+          <div>
+            <input
+              value={position}
+              onChange={(e) => {
+                setPosition(e.target.value);
+                setErrors((prev) => ({ ...prev, position: "" }));
+              }}
+              placeholder="Position"
+              className="w-full border px-4 py-2 rounded"
+            />
+            {errors.position && (
+              <p className="text-red-600 text-sm mt-1">{errors.position}</p>
+            )}
+          </div>
+
+          <div>
+            <input
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              placeholder="Department (optional)"
+              className="w-full border px-4 py-2 rounded"
+            />
+          </div>
+
+          <div>
+            <select
+              value={level}
+              onChange={(e) => {
+                setLevel(parseInt(e.target.value, 10));
+                setErrors((prev) => ({ ...prev, level: "" }));
+              }}
+              className="w-full border px-4 py-2 rounded"
+            >
+              <option value="">Select Level</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+            {errors.level && (
+              <p className="text-red-600 text-sm mt-1">{errors.level}</p>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-4">
-          <button onClick={onClose} className="bg-gray-100 px-4 py-2 rounded">
+          <button
+            onClick={onClose}
+            className="bg-gray-100 px-4 py-2 rounded"
+          >
             Cancel
           </button>
           <button
