@@ -20,8 +20,9 @@ model User {
 }
 
 model History {
-  id Int @id
+  id       Int      @id @default(autoincrement())
   fullName String
-  date DateTime
-  period String
+  level Int
+  date     DateTime
+  period   String
 }
