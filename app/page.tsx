@@ -44,7 +44,6 @@ export default function Home() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to fetch history");
 
-        console.log("Fetched history:", data.history);
         setHistoryItems(data.history);
       } catch (err: any) {
         console.error("Error fetching history:", err.message);
@@ -56,7 +55,6 @@ export default function Home() {
     fetchHistory();
   }, [fromDate, toDate, period]);
 
-  // ✅ Only apply search filter (backend already filters by date/period)
   const filteredItems = historyItems.filter((item) =>
     item.fullName.toLowerCase().includes(search.toLowerCase())
   );
@@ -65,119 +63,157 @@ export default function Home() {
     const worksheet = XLSX.utils.json_to_sheet(filteredItems);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Filtered History");
-    XLSX.writeFile(workbook, "history-export.xlsx");
+    XLSX.writeFile(workbook, "cuisine.xlsx");
   };
 
   async function scanPublicQRImage() {
-  setScanning(true);
-
-  const image = new Image();
-  image.crossOrigin = "anonymous";
-  image.src = "/hamrat-anes.png";
-
-  image.onload = async () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = image.width;
-    canvas.height = image.height;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      alert("❌ Failed to get canvas context.");
-      setScanning(false);
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia
+    ) {
+      alert("❌ Camera access is not supported in this environment.");
       return;
     }
 
-    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const qrCode = jsQR(imageData.data, canvas.width, canvas.height);
+    setScanning(true);
 
-    if (!qrCode?.data) {
-      alert("❌ No QR code detected in the image.");
-      setQrItem(null);
-      setScanning(false);
-      return;
-    }
+    const video = document.createElement("video");
+    video.setAttribute("playsinline", "true"); // Prevent iOS from fullscreen
+    video.style.position = "fixed";
+    video.style.top = "50%";
+    video.style.left = "50%";
+    video.style.transform = "translate(-50%, -50%)";
+    video.style.width = "100%";
+    video.style.maxWidth = "500px";
+    video.style.zIndex = "1000";
+    video.style.border = "2px solid #00FF00"; // optional border
+    video.setAttribute("playsinline", "true");
+
+    document.body.appendChild(video);
 
     try {
-      const res = await fetch("/api/get-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: qrCode.data }),
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "User not found");
+      video.srcObject = stream;
+      await video.play();
 
-      setQrItem(data);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
 
-      const now = new Date();
-      const hour = now.getHours();
-      const minute = now.getMinutes();
-
-      const isLunchTime = hour >= 11 && hour < 16;
-      const isDinnerTime =
-        (hour === 18 && minute >= 30) ||
-        (hour > 18 && hour < 21) ||
-        (hour === 21 && minute <= 30);
-
-      if (!isLunchTime && !isDinnerTime) {
-        alert(
-          "⏰ It's not time yet. Allowed times:\n- 11:00 to 15:00\n- 18:30 to 21:30"
-        );
+      if (!ctx) {
+        alert("❌ Failed to get canvas context.");
+        stopStream(stream);
+        video.remove();
         setScanning(false);
         return;
       }
 
-      const periodValue = isLunchTime ? "lunch" : "dinner";
+      const scan = async () => {
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+          requestAnimationFrame(scan);
+          return;
+        }
 
-      // ✅ Check if already exists today for the same period
-      const alreadyExists = historyItems.some((record) => {
-        const sameDate =
-          new Date(record.date).toISOString().split("T")[0] ===
-          now.toISOString().split("T")[0];
-        const samePeriod = record.period === periodValue;
-        const sameUser = record.id === data.id;
-        return sameDate && samePeriod && sameUser;
-      });
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const qrCode = jsQR(imageData.data, canvas.width, canvas.height);
 
-      if (alreadyExists) {
-        alert(
-          `⚠️ This user has already been registered for ${periodValue} today.`
-        );
-        setScanning(false);
-        return;
-      }
+        if (qrCode?.data) {
+          stopStream(stream);
+          video.remove();
 
-      // ✅ Add to history
-      const addRes = await fetch("/api/add-history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fullName: data.fullName,
-          level: data.level,
-          date: now.toISOString(),
-          period: periodValue,
-        }),
-      });
+          try {
+            const res = await fetch("/api/get-user", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: qrCode.data }),
+            });
 
-      const addData = await addRes.json();
-      if (!addRes.ok)
-        throw new Error(addData.error || "Failed to add to history");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "User not found");
 
-      setHistoryItems((prev) => [...prev, addData.newRecord]);
+            setQrItem(data);
+
+            const now = new Date();
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+
+            const isLunchTime = hour >= 11 && hour < 15;
+            const isDinnerTime =
+              (hour === 18 && minute >= 30) ||
+              (hour > 18 && hour < 21) ||
+              (hour === 21 && minute <= 30);
+
+            if (!isLunchTime && !isDinnerTime) {
+              alert(
+                "⏰ It's not time yet. Allowed times:\n- 11:00 to 15:00\n- 18:30 to 21:30"
+              );
+              setScanning(false);
+              return;
+            }
+
+            const periodValue = isLunchTime ? "lunch" : "dinner";
+
+            const alreadyExists = historyItems.some((record) => {
+              const sameDate =
+                new Date(record.date).toISOString().split("T")[0] ===
+                now.toISOString().split("T")[0];
+              const samePeriod = record.period === periodValue;
+              const sameUser = record.id === data.id;
+              return sameDate && samePeriod && sameUser;
+            });
+
+            if (alreadyExists) {
+              alert(
+                `⚠️ This user has already been registered for ${periodValue} today.`
+              );
+              setScanning(false);
+              return;
+            }
+
+            const addRes = await fetch("/api/add-history", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fullName: data.fullName,
+                level: data.level,
+                date: now.toISOString(),
+                period: periodValue,
+              }),
+            });
+
+            const addData = await addRes.json();
+            if (!addRes.ok)
+              throw new Error(addData.error || "Failed to add to history");
+
+            setHistoryItems((prev) => [...prev, addData.newRecord]);
+          } catch (err: any) {
+            alert("⚠️ " + (err.message || "Unexpected error."));
+            setQrItem(null);
+          } finally {
+            setScanning(false);
+          }
+        } else {
+          requestAnimationFrame(scan); // Keep scanning
+        }
+      };
+
+      requestAnimationFrame(scan);
     } catch (err: any) {
-      alert("⚠️ " + (err.message || "Unexpected error."));
-      setQrItem(null);
-    } finally {
+      alert("❌ Unable to access camera: " + (err.message || err));
+      video.remove();
       setScanning(false);
     }
-  };
 
-  image.onerror = () => {
-    alert("❌ Failed to load QR code image.");
-    setScanning(false);
-  };
-}
-
+    function stopStream(stream: MediaStream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+  }
 
   return (
     <div className="font-sans grid grid-rows-[auto_1fr_auto] items-start justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
@@ -243,7 +279,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Show scanned user / history info */}
         {qrItem && (
           <div className="border p-4 rounded bg-green-50 mt-4">
             <h2 className="font-bold text-lg mb-2">Scanned Info</h2>
@@ -256,7 +291,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Show filtered history list */}
         <ul className="space-y-4">
           {loadingHistory && <p>Loading history...</p>}
           {!loadingHistory && filteredItems.length === 0 && (
@@ -265,10 +299,14 @@ export default function Home() {
           {!loadingHistory &&
             filteredItems.map((item) => (
               <li key={item.id} className="border p-4 rounded shadow-sm">
-                <h2 className="text-lg font-semibold">{item.fullName}</h2>
-                <p className="text-sm text-gray-500">
-                  {new Date(item.date).toLocaleString()} — {item.period}
-                </p>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-lg font-semibold">{item.fullName}</h2>
+                    <p className="text-sm text-gray-500">
+                      {new Date(item.date).toLocaleString()} — {item.period}
+                    </p>
+                  </div>
+                </div>
               </li>
             ))}
         </ul>
